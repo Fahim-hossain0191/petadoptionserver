@@ -20,6 +20,7 @@ async function run(){
           await client.connect();
           const db=client.db('petAdoption');
           const petCollection=db.collection("pets");
+          const adoptionCollection=db.collection("adoptions")
           app.post('/addPet',async(req,res)=>{
             const petData=req.body;
             console.log(petData);
@@ -33,6 +34,11 @@ async function run(){
           app.get('/allPetPage/:id',async(req,res)=>{
             const {id}=req.params
             const result=await petCollection.findOne({_id:new ObjectId(id)})
+            res.json(result);
+        })
+        app.post("/adoption-requests",async(req,res)=>{
+            const bookingData=req.body;
+            const result=await adoptionCollection.insertOne(bookingData)
             res.json(result);
         })
            await client.db("admin").command({ping:1});
