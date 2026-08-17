@@ -1,6 +1,7 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
+const { createRemoteJWKSet, jwtVerify } = require('jose-cjs');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const app = express();
 dotenv.config();
@@ -15,6 +16,29 @@ const client = new MongoClient(uri, {
         deprecationErrors: true,
     }
 })
+const JWKS=createRemoteJWKSet(
+    new URL('http://localhost:3000/api/auth/jwks')
+)
+
+const verifyToken=async(req,res,next)=>{
+const authHeader=req?.headers.authorization
+if(!authHeader){
+    return res.status(401).json({message:"Unauthorized"})
+}
+const token=authHeader.split(" ")[1]
+if(!token){
+    return res.status(401).json({message:"Unauthorized"})
+}
+try{
+
+    const {payload}=await jwtVerify(token,JWKS)
+    console.log(payload)
+   next()
+}catch(error){
+    console.log(error);
+}
+
+}
 async function run() {
     try {
         await client.connect();
@@ -31,7 +55,9 @@ async function run() {
             const petData = await petCollection.find().toArray();
             res.json(petData);
         })
-        app.get('/allPetPage/:id', async (req, res) => {
+        app.get('/allPetPage/:id', verifyToken,async (req, res) => {
+            const header=req.headers.authorization
+            console.log(header)
             const { id } = req.params
             const result = await petCollection.findOne({ _id: new ObjectId(id) })
             res.json(result);
