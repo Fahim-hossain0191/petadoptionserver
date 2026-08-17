@@ -1,57 +1,79 @@
-const express=require('express');
-const dotenv=require('dotenv');
-const cors=require('cors');
-const {MongoClient,ServerApiVersion, ObjectId}=require('mongodb');
-const app=express();
+const express = require('express');
+const dotenv = require('dotenv');
+const cors = require('cors');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const app = express();
 dotenv.config();
-const uri= process.env.MONGODB_URI
+const uri = process.env.MONGODB_URI
 app.use(cors())
 app.use(express.json())
-const PORT=5000;
-const client=new MongoClient(uri,{
-    serverApi:{
-        version:ServerApiVersion.v1,
+const PORT = 5000;
+const client = new MongoClient(uri, {
+    serverApi: {
+        version: ServerApiVersion.v1,
         strict: true,
         deprecationErrors: true,
     }
 })
-async function run(){
-    try{
-          await client.connect();
-          const db=client.db('petAdoption');
-          const petCollection=db.collection("pets");
-          const adoptionCollection=db.collection("adoptions")
-          app.post('/addPet',async(req,res)=>{
-            const petData=req.body;
+async function run() {
+    try {
+        await client.connect();
+        const db = client.db('petAdoption');
+        const petCollection = db.collection("pets");
+        const adoptionCollection = db.collection("adoptions")
+        app.post('/addPet', async (req, res) => {
+            const petData = req.body;
             console.log(petData);
-            const result=await petCollection.insertOne(petData);
+            const result = await petCollection.insertOne(petData);
             res.json(result);
-          })
-          app.get('/allPetPage',async(req,res)=>{
-            const petData=await petCollection.find().toArray();
+        })
+        app.get('/allPetPage', async (req, res) => {
+            const petData = await petCollection.find().toArray();
             res.json(petData);
-          })
-          app.get('/allPetPage/:id',async(req,res)=>{
-            const {id}=req.params
-            const result=await petCollection.findOne({_id:new ObjectId(id)})
+        })
+        app.get('/allPetPage/:id', async (req, res) => {
+            const { id } = req.params
+            const result = await petCollection.findOne({ _id: new ObjectId(id) })
             res.json(result);
         })
-        app.post("/adoption-requests",async(req,res)=>{
-            const bookingData=req.body;
-            const result=await adoptionCollection.insertOne(bookingData)
+        app.post("/adoption-requests", async (req, res) => {
+            const bookingData = req.body;
+            const result = await adoptionCollection.insertOne(bookingData)
             res.json(result);
         })
-           await client.db("admin").command({ping:1});
+        app.get("/adoption-requests", async (req, res) => {
+            try {
+                const email = req.query.email;
+
+                const query = {
+                    ownerEmail: email,
+                };
+
+                const requests = await adoptionCollection
+                    .find(query)
+                    .sort({ _id: -1 })
+                    .toArray();
+
+                res.json(requests);
+            } catch (error) {
+                console.error(error);
+
+                res.status(500).json({
+                    message: "Failed to fetch adoption requests",
+                });
+            }
+        });
+        await client.db("admin").command({ ping: 1 });
         console.log("Pigned your deployment.You successfully connected to MongoDB!")
-    }finally{
+    } finally {
 
     }
 }
 run().catch(console.dir);
 
-app.get('/',(req,res)=>{
+app.get('/', (req, res) => {
     res.send("Server is running fine");
 })
-app.listen(PORT,()=>{
+app.listen(PORT, () => {
     console.log(`Server is running at port ${PORT}`);
 })
