@@ -43,11 +43,17 @@ async function run() {
         })
         app.get("/adoption-requests", async (req, res) => {
             try {
-                const email = req.query.email;
+                const { email, petId } = req.query;
 
-                const query = {
-                    ownerEmail: email,
-                };
+                let query = {};
+
+                if (email) {
+                    query.ownerEmail = email;
+                }
+
+                if (petId) {
+                    query.petId = petId;
+                }
 
                 const requests = await adoptionCollection
                     .find(query)
@@ -55,11 +61,254 @@ async function run() {
                     .toArray();
 
                 res.json(requests);
+
             } catch (error) {
                 console.error(error);
 
                 res.status(500).json({
                     message: "Failed to fetch adoption requests",
+                });
+            }
+        });
+        app.get("/my-listings/:email", async (req, res) => {
+            try {
+                const email = req.params.email;
+
+                console.log("Fetching listings for:", email);
+
+                const pets = await petCollection
+                    .find({ ownerEmail: email })
+                    .sort({ _id: -1 })
+                    .toArray();
+
+                console.log("Found pets:", pets.length);
+
+                res.json(pets);
+            } catch (error) {
+                console.error("My listings error:", error);
+
+                res.status(500).json({
+                    message: "Failed to fetch listings",
+                    error: error.message,
+                });
+            }
+        });
+        // app.patch("/adoption-requests/:id", async (req, res) => {
+        //     try {
+        //         const { id } = req.params;
+        //         const { status } = req.body;
+
+        //         if (!["approved", "rejected"].includes(status)) {
+        //             return res.status(400).json({
+        //                 message: "Invalid status",
+        //             });
+        //         }
+
+        //         const request = await adoptionCollection.findOne({
+        //             _id: new ObjectId(id),
+        //         });
+
+        //         if (!request) {
+        //             return res.status(404).json({
+        //                 message: "Adoption request not found",
+        //             });
+        //         }
+
+        //         // If rejecting, simply reject this request
+        //         if (status === "rejected") {
+        //             await adoptionCollection.updateOne(
+        //                 { _id: new ObjectId(id) },
+        //                 {
+        //                     $set: {
+        //                         status: "rejected",
+        //                     },
+        //                 }
+        //             );
+
+        //             return res.json({
+        //                 success: true,
+        //                 message: "Request rejected",
+        //             });
+        //         }
+
+        //         // ============================
+        //         // APPROVING REQUEST
+        //         // ============================
+
+        //         // Find the pet
+        //         const pet = await petCollection.findOne({
+        //             _id: new ObjectId(request.petId),
+        //         });
+
+        //         if (!pet) {
+        //             return res.status(404).json({
+        //                 message: "Pet not found",
+        //             });
+        //         }
+
+        //         // Already adopted?
+        //         if (pet.status === "adopted") {
+        //             return res.status(400).json({
+        //                 message: "This pet has already been adopted",
+        //             });
+        //         }
+
+        //         // Approve selected request
+        //         await adoptionCollection.updateOne(
+        //             { _id: new ObjectId(id) },
+        //             {
+        //                 $set: {
+        //                     status: "approved",
+        //                 },
+        //             }
+        //         );
+
+        //         // Reject all other requests for this pet
+        //         await adoptionCollection.updateMany(
+        //             {
+        //                 petId: request.petId,
+        //                 _id: { $ne: new ObjectId(id) },
+        //                 status: "pending",
+        //             },
+        //             {
+        //                 $set: {
+        //                     status: "rejected",
+        //                 },
+        //             }
+        //         );
+
+        //         // Mark pet as adopted
+        //         await petCollection.updateOne(
+        //             {
+        //                 _id: new ObjectId(request.petId),
+        //             },
+        //             {
+        //                 $set: {
+        //                     status: "adopted",
+        //                 },
+        //             }
+        //         );
+
+        //         res.json({
+        //             success: true,
+        //             message: "Request approved and pet marked as adopted",
+        //         });
+
+        //     } catch (error) {
+        //         console.error("Approval error:", error);
+
+        //         res.status(500).json({
+        //             message: "Failed to process adoption request",
+        //         });
+        //     }
+        // })
+        // ;
+        app.patch("/adoption-requests/:id", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { status } = req.body;
+
+                if (!["approved", "rejected"].includes(status)) {
+                    return res.status(400).json({
+                        message: "Invalid status",
+                    });
+                }
+
+                const request = await adoptionCollection.findOne({
+                    _id: new ObjectId(id),
+                });
+
+                if (!request) {
+                    return res.status(404).json({
+                        message: "Adoption request not found",
+                    });
+                }
+
+                // If rejecting, simply reject this request
+                if (status === "rejected") {
+                    await adoptionCollection.updateOne(
+                        { _id: new ObjectId(id) },
+                        {
+                            $set: {
+                                status: "rejected",
+                            },
+                        }
+                    );
+
+                    return res.json({
+                        success: true,
+                        message: "Request rejected",
+                    });
+                }
+
+                // ============================
+                // APPROVING REQUEST
+                // ============================
+
+                // Find the pet
+                const pet = await petCollection.findOne({
+                    _id: new ObjectId(request.petId),
+                });
+
+                if (!pet) {
+                    return res.status(404).json({
+                        message: "Pet not found",
+                    });
+                }
+
+                // Already adopted?
+                if (pet.status === "adopted") {
+                    return res.status(400).json({
+                        message: "This pet has already been adopted",
+                    });
+                }
+
+                // Approve selected request
+                await adoptionCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    {
+                        $set: {
+                            status: "approved",
+                        },
+                    }
+                );
+
+                // Reject all other requests for this pet
+                await adoptionCollection.updateMany(
+                    {
+                        petId: request.petId,
+                        _id: { $ne: new ObjectId(id) },
+                        status: "pending",
+                    },
+                    {
+                        $set: {
+                            status: "rejected",
+                        },
+                    }
+                );
+
+                // Mark pet as adopted
+                await petCollection.updateOne(
+                    {
+                        _id: new ObjectId(request.petId),
+                    },
+                    {
+                        $set: {
+                            status: "adopted",
+                        },
+                    }
+                );
+
+                res.json({
+                    success: true,
+                    message: "Request approved and pet marked as adopted",
+                });
+
+            } catch (error) {
+                console.error("Approval error:", error);
+
+                res.status(500).json({
+                    message: "Failed to process adoption request",
                 });
             }
         });
