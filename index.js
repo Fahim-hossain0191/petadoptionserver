@@ -26,10 +26,15 @@ async function run(){
             const result=await petCollection.insertOne(petData);
             res.json(result);
           })
-          app.get('/dashboardPage',async(req,res)=>{
+          app.get('/allPetPage',async(req,res)=>{
             const petData=await petCollection.find().toArray();
-            res.json(result);
+            res.json(petData);
           })
+          app.get('/allPetPage/:id',async(req,res)=>{
+            const {id}=req.params
+            const result=await petCollection.findOne({_id:new ObjectId(id)})
+            res.json(result);
+        })
            await client.db("admin").command({ping:1});
         console.log("Pigned your deployment.You successfully connected to MongoDB!")
     }finally{
