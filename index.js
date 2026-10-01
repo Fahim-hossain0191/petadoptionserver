@@ -17,41 +17,80 @@ const client = new MongoClient(uri, {
     }
 })
 const JWKS=createRemoteJWKSet(
-    new URL('http://localhost:3000/api/auth/jwks')
+    new URL((`${process.env.CLIENT_URL}/api/auth/jwks`))
 )
 
-const verifyToken=async(req,res,next)=>{
-const authHeader=req?.headers.authorization
-if(!authHeader){
-    return res.status(401).json({message:"Unauthorized"})
-}
-const token=authHeader.split(" ")[1]
-if(!token){
-    return res.status(401).json({message:"Unauthorized"})
-}
-try{
+const verifyToken = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
 
-    const {payload}=await jwtVerify(token,JWKS)
-    console.log(payload)
-   next()
-}catch(error){
-    console.log(error);
-}
+    if (!authHeader) {
+        return res.status(401).json({
+            message: "Unauthorized"
+        });
+    }
 
-}
+    const token = authHeader.split(" ")[1];
+
+    if (!token) {
+        return res.status(401).json({
+            message: "Unauthorized"
+        });
+    }
+
+    try {
+        const { payload } = await jwtVerify(token, JWKS);
+
+        req.user = payload;
+
+        next();
+
+    } catch (error) {
+
+        console.error("JWT Verify Error:", error);
+
+        return res.status(401).json({
+            message: "Invalid token",
+            error: error.code
+        });
+    }
+};
+
 async function run() {
     try {
-        await client.connect();
+        // await client.connect();
         const db = client.db('petAdoption');
         const petCollection = db.collection("pets");
         const adoptionCollection = db.collection("adoptions")
-        app.post('/addPet', async (req, res) => {
-            const petData = req.body;
-            console.log(petData);
-            const result = await petCollection.insertOne(petData);
-            res.json(result);
-        })
-        app.get('/allPetPage', async (req, res) => {
+       app.post('/addPet', verifyToken, async (req, res) => {
+    try {
+        const petData = req.body;
+
+        const userEmail = req.user.email;
+
+        if (!userEmail) {
+            return res.status(401).json({
+                message: "User email not found in token",
+            });
+        }
+
+        const newPet = {
+            ...petData,
+            ownerEmail: userEmail,
+        };
+
+        const result = await petCollection.insertOne(newPet);
+
+        res.json(result);
+
+    } catch (error) {
+        console.error("Add pet error:", error);
+
+        res.status(500).json({
+            message: "Failed to add pet",
+        });
+    }
+});
+        app.get('/allPetPage',verifyToken, async (req, res) => {
             const petData = await petCollection.find().toArray();
             res.json(petData);
         })
@@ -62,40 +101,121 @@ async function run() {
             const result = await petCollection.findOne({ _id: new ObjectId(id) })
             res.json(result);
         })
-        app.post("/adoption-requests", async (req, res) => {
+        app.post("/adoption-requests", verifyToken,async (req, res) => {
             const bookingData = req.body;
             const result = await adoptionCollection.insertOne(bookingData)
             res.json(result);
         })
-        app.get("/adoption-requests", async (req, res) => {
-            try {
-                const { email, petId } = req.query;
 
-                let query = {};
+//      app.get("/adoption-requests", verifyToken, async (req, res) => {
+//   try {
+//     const userEmail = req.user.email;
+//     const { petId } = req.query;
 
-                if (email) {
-                    query.ownerEmail = email;
-                }
+//     if (!userEmail) {
+//       return res.status(401).json({
+//         message: "User email not found in token",
+//       });
+//     }
 
-                if (petId) {
-                    query.petId = petId;
-                }
+//     let query;
 
-                const requests = await adoptionCollection
-                    .find(query)
-                    .sort({ _id: -1 })
-                    .toArray();
+//     // Used by PetCard / pet details:
+//     // Get requests made BY the logged-in user for a specific pet
+//     if (petId) {
+//       query = {
+//         petId: petId,
+//         userEmail: userEmail,
+//       };
+//     } 
+//     // Used by MyRequests:
+//     // Get requests FOR pets owned by the logged-in user
+//     else {
+//       query = {
+//         ownerEmail: userEmail,
+//       };
+//     }
 
-                res.json(requests);
+//     const requests = await adoptionCollection
+//       .find(query)
+//       .sort({ _id: -1 })
+//       .toArray();
 
-            } catch (error) {
-                console.error(error);
+//     res.json(requests);
+//   } catch (error) {
+//     console.error("Fetch adoption requests error:", error);
 
-                res.status(500).json({
-                    message: "Failed to fetch adoption requests",
-                });
-            }
-        });
+//     res.status(500).json({
+//       message: "Failed to fetch adoption requests",
+//     });
+//   }
+// });
+app.get("/adoption-requests", verifyToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+    const { petId } = req.query;
+
+    if (!userEmail) {
+      return res.status(401).json({
+        message: "User email not found in token",
+      });
+    }
+
+    // --------------------------------------------------
+    // If petId is provided:
+    // Get requests made BY the logged-in user for this pet
+    // --------------------------------------------------
+    if (petId) {
+      const requests = await adoptionCollection
+        .find({
+          petId: petId,
+          userEmail: userEmail,
+        })
+        .sort({ _id: -1 })
+        .toArray();
+
+      return res.json(requests);
+    }
+
+    // --------------------------------------------------
+    // My Requests:
+    // Find pets owned by the logged-in user
+    // --------------------------------------------------
+    const myPets = await petCollection
+      .find({
+        ownerEmail: userEmail,
+      })
+      .toArray();
+
+    const myPetIds = myPets.map((pet) => pet._id.toString());
+
+    console.log("Logged-in user:", userEmail);
+    console.log("My pet IDs:", myPetIds);
+
+    if (myPetIds.length === 0) {
+      return res.json([]);
+    }
+
+    // --------------------------------------------------
+    // Find adoption requests for those pets
+    // --------------------------------------------------
+    const requests = await adoptionCollection
+      .find({
+        petId: { $in: myPetIds },
+      })
+      .sort({ _id: -1 })
+      .toArray();
+
+    res.json(requests);
+
+  } catch (error) {
+    console.error("Fetch adoption requests error:", error);
+
+    res.status(500).json({
+      message: "Failed to fetch adoption requests",
+    });
+  }
+});
         app.get("/my-listings/:email", async (req, res) => {
             try {
                 const email = req.params.email;
@@ -229,7 +349,7 @@ async function run() {
         //     }
         // })
         // ;
-        app.patch("/adoption-requests/:id", async (req, res) => {
+        app.patch("/adoption-requests/:id", verifyToken,async (req, res) => {
             try {
                 const { id } = req.params;
                 const { status } = req.body;
@@ -338,7 +458,7 @@ async function run() {
                 });
             }
         });
-        await client.db("admin").command({ ping: 1 });
+        // await client.db("admin").command({ ping: 1 });
         console.log("Pigned your deployment.You successfully connected to MongoDB!")
     } finally {
 
